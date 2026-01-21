@@ -2,92 +2,127 @@ import streamlit as st
 import pandas as pd
 import math
 
-# ---------------------------------
-# KONFIGURASI HALAMAN
-# ---------------------------------
-st.set_page_config(
-    page_title="ETMAL Calculator",
-    layout="wide"
-)
+st.set_page_config(page_title="ETMAL Calculator", layout="wide")
+st.title("📊 ETMAL Calculator")
 
-st.title("🚢 ETMAL & Invoice Calculator")
-st.write(
-    "Upload file **DATA.xlsx**, sistem akan otomatis menghitung "
-    "**ETMAL Charge** dan **Invoice (USD)**."
-)
+uploaded_file = st.file_uploader("Upload file Excel", type=["xlsx", "xls"])
 
-# ---------------------------------
-# UPLOAD FILE
-# ---------------------------------
-uploaded_file = st.file_uploader(
-    "📤 Upload file Excel",
-    type=["xlsx"]
-)
-
-# ---------------------------------
-# FUNGSI HITUNG ETMAL
-# ---------------------------------
-def hitung_etmal(jam):
-    if pd.isna(jam) or jam <= 0:
-        return 0
-    return min(math.ceil(jam / 6) * 0.25, 2)
-
-# ---------------------------------
-# PROSES DATA
-# ---------------------------------
-if uploaded_file is not None:
+if uploaded_file:
     try:
-        # Baca sheet pertama (apa pun namanya)
-        df = pd.read_excel(uploaded_file)
+        xls = pd.ExcelFile(uploaded_file)
+        sheet_name = st.selectbox("📄 Sheet digunakan:", xls.sheet_names)
 
-        # Mapping kolom berdasarkan POSISI kolom Excel
-        hasil = pd.DataFrame({
-            "Name of Vessel": df.iloc[:, 4],        # E
-            "Voyage": df.iloc[:, 5],                # F
-            "Berth": df.iloc[:, 21],                # V
-            "Service": df.iloc[:, 10],               # K
-            "ATB": df.iloc[:, 26],                  # AA
-            "ATD": df.iloc[:, 118],                 # DO
-            "No. of Moves": df.iloc[:, 122],        # DS
-            "TEUS": df.iloc[:, 109],                # DF
-            "BSH": df.iloc[:, 133],                 # ED
-            "CD": df.iloc[:, 135],                  # EF
-            "GRT": df.iloc[:, 20],                  # U
-            "Current Berthing Hours": df.iloc[:, 119],  # DP
+        df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+
+        # =========================
+        # BERSIHKAN NAMA KOLOM
+        # =========================
+        df.columns = (
+            df.columns.astype(str)
+            .str.replace("\n", " ", regex=False)
+            .str.replace('"', "", regex=False)
+            .str.strip()
+            .str.upper()
+            .str.replace(" ", "_")
+        )
+
+        # =========================
+        # STANDAR KOLOM
+        # =========================
+        kolom_map = {
+            "NAME_OF_VESSEL": "NAME_OF_VESSEL",
+            "VOYAGE": "VOYAGE",
+            "BERTH": "BERTH",
+            "SERVICE": "SERVICE",
+            "ATB": "ATB",
+            "ATD": "ATD",
+            "NO._OF_MOVES": "NO_OF_MOVES",
+            "NO_OF_MOVES": "NO_OF_MOVES",
+            "TEUS": "TEUS",
+            "BSH": "BSH",
+            "CD": "CD",
+            "GRT": "GRT",
+            "CURRENT_BERTHING_HOURS": "CURRENT_BERTHING_HOURS"
+        }
+
+        df = df.rename(columns={k: v for k, v in kolom_map.items() if k in df.columns})
+
+        # =========================
+        # KONVERSI NUMERIK (INI KUNCI FIX ERROR)
+        # =========================
+        kolom_angka = [
+            "CURRENT_BERTHING_HOURS",
+            "BSH",
+            "CD",
+            "GRT"
+        ]
+
+        for col in kolom_angka:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+        # =========================
+        # HITUNG ETMAL
+        # =========================
+        def hitung_etmal(row):
+            if row["CURRENT_BERTHING_HOURS"] <= row["BSH"]:
+                return 0
+            else:
+                selisih = row["CURRENT_BERTHING_HOURS"] - row["BSH"]
+                if row["CD"] == 0:
+                    return 0
+                return math.ceil(selisih / row["CD"])
+
+        df["ETMAL_CHARGED"] = df.apply(hitung_etmal, axis=1)
+
+        # =========================
+        # HITUNG INVOICE
+        # =========================
+        df["INVOICE_USD"] = df["GRT"] * 0.131 * df["ETMAL_CHARGED"]
+
+        # =========================
+        # TAMPILAN AKHIR
+        # =========================
+        tampil = [
+            "NAME_OF_VESSEL",
+            "VOYAGE",
+            "BERTH",
+            "SERVICE",
+            "ATB",
+            "ATD",
+            "CURRENT_BERTHING_HOURS",
+            "NO_OF_MOVES",
+            "TEUS",
+            "BSH",
+            "CD",
+            "GRT",
+            "ETMAL_CHARGED",
+            "INVOICE_USD"
+        ]
+
+        tampil = [c for c in tampil if c in df.columns]
+        df = df[tampil]
+
+        df = df.rename(columns={
+            "NAME_OF_VESSEL": "Name of Vessel",
+            "CURRENT_BERTHING_HOURS": "Current Berthing Hours",
+            "NO_OF_MOVES": "No. of Moves",
+            "ETMAL_CHARGED": "Etmal Charged",
+            "INVOICE_USD": "Invoice (USD)"
         })
 
-        # Hitungan tambahan
-        hasil["Current Berthing Minutes"] = hasil["Current Berthing Hours"] * 60
-        hasil["ETMAL Charge"] = hasil["Current Berthing Hours"].apply(hitung_etmal)
-        hasil["Invoice (USD)"] = (
-            hasil["GRT"] * 0.131 * hasil["ETMAL Charge"]
-        ).round(2)
+        st.success("✅ Berhasil dihitung")
+        st.dataframe(df, use_container_width=True)
 
-        # ---------------------------------
-        # TAMPILKAN HASIL
-        # ---------------------------------
-        st.subheader("📊 Hasil Perhitungan ETMAL")
-        st.dataframe(hasil, use_container_width=True)
-
-        # ---------------------------------
-        # DOWNLOAD HASIL
-        # ---------------------------------
+        # DOWNLOAD
+        output = df.to_excel(index=False)
         st.download_button(
-            "⬇️ Download Hasil Excel",
-            data=hasil.to_excel(index=False),
-            file_name="HASIL_ETMAL.xlsx",
+            "⬇️ Download hasil Excel",
+            output,
+            "ETMAL_RESULT.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    except IndexError:
-        st.error(
-            "❌ Struktur kolom Excel tidak sesuai.\n\n"
-            "Pastikan file yang di-upload adalah **DATA.xlsx** "
-            "dengan jumlah kolom lengkap."
-        )
-
     except Exception as e:
-        st.error(f"❌ Terjadi kesalahan: {e}")
-
-else:
-    st.info("⬆️ Silakan upload file Excel untuk memulai perhitungan.")
+        st.error("❌ Terjadi kesalahan")
+        st.code(str(e))
