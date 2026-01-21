@@ -2,45 +2,97 @@ import streamlit as st
 import pandas as pd
 import math
 
-st.set_page_config(page_title="ETMAL Calculator", layout="wide")
+# ==============================
+# KONFIGURASI HALAMAN
+# ==============================
+st.set_page_config(
+    page_title="ETMAL Calculator",
+    layout="wide"
+)
+
 st.title("🚢 ETMAL & Invoice Calculator")
+st.write(
+    "Upload file Excel **DATA** untuk menghitung "
+    "**ETMAL Charge** dan **Invoice (USD)** secara otomatis."
+)
 
-st.write("Upload file **DATA.xlsx**, sistem akan otomatis menghitung ETMAL dan Invoice.")
+# ==============================
+# UPLOAD FILE
+# ==============================
+uploaded_file = st.file_uploader(
+    "📤 Upload file Excel (.xlsx)",
+    type=["xlsx"]
+)
 
-uploaded_file = st.file_uploader("📤 Upload DATA.xlsx", type=["xlsx"])
-
+# ==============================
+# FUNGSI HITUNG ETMAL
+# ==============================
 def hitung_etmal(jam):
     if pd.isna(jam) or jam <= 0:
         return 0
-    return min(math.ceil(jam / 6) * 0.25, 2)
+    etmal = math.ceil(jam / 6) * 0.25
+    return min(etmal, 2)
 
+# ==============================
+# PROSES FILE
+# ==============================
 if uploaded_file:
-    df = pd.read_excel(uploaded_file, sheet_name="DATA")
+    try:
+        # Baca semua sheet
+        xls = pd.ExcelFile(uploaded_file)
+        sheet_aktif = xls.sheet_names[0]
 
-    hasil = pd.DataFrame({
-        "Name of Vessel": df.iloc[:, 4],     
-        "Voyage": df.iloc[:, 5],
-        "Berth": df.iloc[:, 21],
-        "Service": df.iloc[:, 10],
-        "ATB": df.iloc[:, 26],
-        "ATD": df.iloc[:, 118],
-        "No. of Moves": df.iloc[:, 122],
-        "TEUS": df.iloc[:, 109],
-        "BSH": df.iloc[:, 133],
-        "CD": df.iloc[:, 135],
-        "GRT": df.iloc[:, 20],
-        "Current Berthing Hours": df.iloc[:, 119],
-    })
+        st.info(f"📄 Sheet digunakan: **{sheet_aktif}**")
 
-    hasil["Current Berthing Minutes"] = hasil["Current Berthing Hours"] * 60
-    hasil["ETMAL Charge"] = hasil["Current Berthing Hours"].apply(hitung_etmal)
-    hasil["Invoice (USD)"] = (hasil["GRT"] * 0.131 * hasil["ETMAL Charge"]).round(2)
+        df = pd.read_excel(xls, sheet_name=sheet_aktif)
 
-    st.dataframe(hasil, use_container_width=True)
+        # ==============================
+        # MAPPING KOLOM (BERDASARKAN POSISI)
+        # ==============================
+        hasil = pd.DataFrame({
+            "Name of Vessel": df.iloc[:, 4],          # E
+            "Voyage": df.iloc[:, 5],                  # F
+            "Berth": df.iloc[:, 21],                  # V
+            "Service": df.iloc[:, 10],                # K
+            "ATB": df.iloc[:, 26],                    # AA
+            "ATD": df.iloc[:, 118],                   # DO
+            "No. of Moves": df.iloc[:, 122],          # DS
+            "TEUS": df.iloc[:, 109],                  # DF
+            "BSH": df.iloc[:, 133],                   # ED
+            "CD": df.iloc[:, 135],                    # EF
+            "GRT": df.iloc[:, 20],                    # U
+            "Current Berthing Hours": df.iloc[:, 119] # DP
+        })
 
-    st.download_button(
-        "⬇️ Download Hasil Excel",
-        data=hasil.to_excel(index=False),
-        file_name="HASIL_ETMAL.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        # ==============================
+        # PERHITUNGAN
+        # ==============================
+        hasil["Current Berthing Minutes"] = (
+            hasil["Current Berthing Hours"].fillna(0) * 60
+        )
+
+        hasil["ETMAL Charge"] = hasil["Current Berthing Hours"].apply(hitung_etmal)
+
+        hasil["Invoice (USD)"] = (
+            hasil["GRT"].fillna(0) * 0.131 * hasil["ETMAL Charge"]
+        ).round(2)
+
+        # ==============================
+        # OUTPUT
+        # ==============================
+        st.subheader("📊 Hasil Perhitungan ETMAL")
+        st.dataframe(hasil, use_container_width=True)
+
+        # ==============================
+        # DOWNLOAD
+        # ==============================
+        st.download_button(
+            "⬇️ Download Hasil Excel",
+            data=hasil.to_excel(index=False),
+            file_name="HASIL_ETMAL.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    except Exception as e:
+        st.error("❌ Terjadi kesalahan saat membaca file.")
+        st.code(str(e))
