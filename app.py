@@ -12,109 +12,73 @@ if uploaded_file:
         xls = pd.ExcelFile(uploaded_file)
         sheet_name = st.selectbox("📄 Sheet digunakan:", xls.sheet_names)
 
-        df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
-
         # =========================
-        # BERSIHKAN NAMA KOLOM
+        # BACA DATA MULAI BARIS KE-10
         # =========================
-        df.columns = (
-            df.columns.astype(str)
-            .str.replace("\n", " ", regex=False)
-            .str.replace('"', "", regex=False)
-            .str.strip()
-            .str.upper()
-            .str.replace(" ", "_")
+        raw_df = pd.read_excel(
+            uploaded_file,
+            sheet_name=sheet_name,
+            skiprows=9,
+            header=None
         )
 
         # =========================
-        # STANDAR KOLOM
+        # AMBIL KOLOM BERDASARKAN POSISI EXCEL
         # =========================
-        kolom_map = {
-            "NAME_OF_VESSEL": "NAME_OF_VESSEL",
-            "VOYAGE": "VOYAGE",
-            "BERTH": "BERTH",
-            "SERVICE": "SERVICE",
-            "ATB": "ATB",
-            "ATD": "ATD",
-            "NO._OF_MOVES": "NO_OF_MOVES",
-            "NO_OF_MOVES": "NO_OF_MOVES",
-            "TEUS": "TEUS",
-            "BSH": "BSH",
-            "CD": "CD",
-            "GRT": "GRT",
-            "CURRENT_BERTHING_HOURS": "CURRENT_BERTHING_HOURS"
-        }
-
-        df = df.rename(columns={k: v for k, v in kolom_map.items() if k in df.columns})
+        df = pd.DataFrame({
+            "Name of Vessel": raw_df.iloc[:, 4],    # E
+            "Voyage": raw_df.iloc[:, 5],             # F
+            "Berth": raw_df.iloc[:, 21],             # V
+            "Service": raw_df.iloc[:, 10],           # K
+            "ATB": raw_df.iloc[:, 26],               # AA
+            "ATD": raw_df.iloc[:, 118],              # DO
+            "No. of Moves": raw_df.iloc[:, 122],     # DS
+            "TEUS": raw_df.iloc[:, 109],             # DF
+            "BSH": raw_df.iloc[:, 133],              # ED
+            "CD": raw_df.iloc[:, 135],               # EF
+            "GRT": raw_df.iloc[:, 20],               # U
+            "Current Berthing hours": raw_df.iloc[:, 119],  # DP
+        })
 
         # =========================
-        # KONVERSI NUMERIK (INI KUNCI FIX ERROR)
+        # KONVERSI NUMERIK (WAJIB)
         # =========================
-        kolom_angka = [
-            "CURRENT_BERTHING_HOURS",
+        for col in [
+            "Current Berthing hours",
             "BSH",
             "CD",
             "GRT"
-        ]
-
-        for col in kolom_angka:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        ]:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
         # =========================
         # HITUNG ETMAL
         # =========================
         def hitung_etmal(row):
-            if row["CURRENT_BERTHING_HOURS"] <= row["BSH"]:
+            if row["Current Berthing hours"] <= row["BSH"]:
                 return 0
-            else:
-                selisih = row["CURRENT_BERTHING_HOURS"] - row["BSH"]
-                if row["CD"] == 0:
-                    return 0
-                return math.ceil(selisih / row["CD"])
+            if row["CD"] == 0:
+                return 0
+            return math.ceil(
+                (row["Current Berthing hours"] - row["BSH"]) / row["CD"]
+            )
 
-        df["ETMAL_CHARGED"] = df.apply(hitung_etmal, axis=1)
+        df["Etmal charged"] = df.apply(hitung_etmal, axis=1)
 
         # =========================
         # HITUNG INVOICE
         # =========================
-        df["INVOICE_USD"] = df["GRT"] * 0.131 * df["ETMAL_CHARGED"]
+        df["Invoice (USD)"] = df["GRT"] * 0.131 * df["Etmal charged"]
 
         # =========================
-        # TAMPILAN AKHIR
+        # TAMPILKAN HASIL
         # =========================
-        tampil = [
-            "NAME_OF_VESSEL",
-            "VOYAGE",
-            "BERTH",
-            "SERVICE",
-            "ATB",
-            "ATD",
-            "CURRENT_BERTHING_HOURS",
-            "NO_OF_MOVES",
-            "TEUS",
-            "BSH",
-            "CD",
-            "GRT",
-            "ETMAL_CHARGED",
-            "INVOICE_USD"
-        ]
-
-        tampil = [c for c in tampil if c in df.columns]
-        df = df[tampil]
-
-        df = df.rename(columns={
-            "NAME_OF_VESSEL": "Name of Vessel",
-            "CURRENT_BERTHING_HOURS": "Current Berthing Hours",
-            "NO_OF_MOVES": "No. of Moves",
-            "ETMAL_CHARGED": "Etmal Charged",
-            "INVOICE_USD": "Invoice (USD)"
-        })
-
-        st.success("✅ Berhasil dihitung")
+        st.success("✅ Data berhasil diproses")
         st.dataframe(df, use_container_width=True)
 
+        # =========================
         # DOWNLOAD
+        # =========================
         output = df.to_excel(index=False)
         st.download_button(
             "⬇️ Download hasil Excel",
