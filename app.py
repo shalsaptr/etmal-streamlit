@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import math
 
 st.set_page_config(page_title="ETMAL Calculator", layout="wide")
 st.title("📊 ETMAL Calculator")
@@ -23,10 +22,10 @@ if uploaded_file:
         )
 
         # =========================
-        # AMBIL KOLOM BERDASARKAN POSISI EXCEL
+        # AMBIL KOLOM BERDASARKAN POSISI
         # =========================
         df = pd.DataFrame({
-            "Name of Vessel": raw_df.iloc[:, 4],    # E
+            "Name of Vessel": raw_df.iloc[:, 4],     # E
             "Voyage": raw_df.iloc[:, 5],             # F
             "Berth": raw_df.iloc[:, 21],             # V
             "Service": raw_df.iloc[:, 10],           # K
@@ -34,46 +33,65 @@ if uploaded_file:
             "ATD": raw_df.iloc[:, 118],              # DO
             "No. of Moves": raw_df.iloc[:, 122],     # DS
             "TEUS": raw_df.iloc[:, 109],             # DF
-            "BSH": raw_df.iloc[:, 133],              # ED
-            "CD": raw_df.iloc[:, 135],               # EF
             "GRT": raw_df.iloc[:, 20],               # U
             "Current Berthing hours": raw_df.iloc[:, 119],  # DP
         })
 
         # =========================
-        # KONVERSI NUMERIK (WAJIB)
+        # KONVERSI NUMERIK
         # =========================
-        for col in [
-            "Current Berthing hours",
-            "BSH",
-            "CD",
-            "GRT"
-        ]:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        df["Current Berthing hours"] = pd.to_numeric(
+            df["Current Berthing hours"], errors="coerce"
+        ).fillna(0)
+
+        df["GRT"] = pd.to_numeric(
+            df["GRT"], errors="coerce"
+        ).fillna(0)
 
         # =========================
-        # HITUNG ETMAL
+        # CURRENT BERTHING MINUTES
         # =========================
-        def hitung_etmal(row):
-            if row["Current Berthing hours"] <= row["BSH"]:
-                return 0
-            if row["CD"] == 0:
-                return 0
-            return math.ceil(
-                (row["Current Berthing hours"] - row["BSH"]) / row["CD"]
-            )
+        df["Current Berthing minutes"] = df["Current Berthing hours"] * 60
 
-        df["Etmal charged"] = df.apply(hitung_etmal, axis=1)
+        # =========================
+        # LOGIKA ETMAL SESUAI EXCEL
+        # =========================
+        def hitung_etmal(jam):
+            if jam <= 6:
+                return 0.25
+            elif jam <= 12:
+                return 0.5
+            elif jam <= 18:
+                return 0.75
+            elif jam <= 24:
+                return 1
+            elif jam <= 30:
+                return 1.25
+            elif jam <= 36:
+                return 1.5
+            elif jam <= 42:
+                return 1.75
+            else:
+                return 2
+
+        df["Etmal charged"] = df["Current Berthing hours"].apply(hitung_etmal)
 
         # =========================
         # HITUNG INVOICE
         # =========================
-        df["Invoice (USD)"] = df["GRT"] * 0.131 * df["Etmal charged"]
+        df["Invoice (USD)"] = (
+            df["GRT"] * 0.131 * df["Etmal charged"]
+        ).round(2)
 
         # =========================
-        # TAMPILKAN HASIL
+        # NOMOR BARIS MULAI 1
         # =========================
-        st.success("✅ Data berhasil diproses")
+        df.insert(0, "No", range(1, len(df) + 1))
+
+        # =========================
+        # TAMPILKAN
+        # =========================
+        st.success("✅ Perhitungan sesuai Excel HITUNGAN ETMAL")
         st.dataframe(df, use_container_width=True)
 
         # =========================
