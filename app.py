@@ -48,6 +48,15 @@ if uploaded_file:
         })
 
         # =========================
+        # FORMAT ATB & ATD (INI REVISI UTAMA)
+        # =========================
+        for col in ["ATB", "ATD"]:
+            df[col] = pd.to_datetime(
+                df[col],
+                errors="coerce"
+            ).dt.strftime("%d/%m/%Y %H:%M")
+
+        # =========================
         # KONVERSI KE NUMERIK
         # =========================
         df["Current Berthing hours"] = pd.to_numeric(
@@ -105,7 +114,7 @@ if uploaded_file:
         # =========================
         # TAMPILKAN DATA
         # =========================
-        st.success("✅ Perhitungan sesuai Excel HITUNGAN ETMAL")
+        st.success("✅ ATB & ATD sudah diformat seragam")
         st.dataframe(df, use_container_width=True)
 
         # =========================
