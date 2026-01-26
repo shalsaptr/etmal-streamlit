@@ -48,7 +48,7 @@ if uploaded_file:
         })
 
         # =========================
-        # FORMAT ATB & ATD (INI REVISI UTAMA)
+        # FORMAT ATB & ATD → DD/MM/YYYY HH:MM
         # =========================
         for col in ["ATB", "ATD"]:
             df[col] = pd.to_datetime(
@@ -114,7 +114,6 @@ if uploaded_file:
         # =========================
         # TAMPILKAN DATA
         # =========================
-        st.success("✅ ATB & ATD sudah diformat seragam")
         st.dataframe(df, use_container_width=True)
 
         # =========================
