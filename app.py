@@ -32,7 +32,12 @@ if uploaded_file:
         )
 
         # =========================
-        # AMBIL KOLOM BERDASARKAN POSISI EXCEL
+        # ABAIKAN 2 BARIS TERAKHIR 🔥
+        # =========================
+        raw_df = raw_df.iloc[:-2]
+
+        # =========================
+        # AMBIL KOLOM BERDASARKAN POSISI
         # =========================
         df = pd.DataFrame({
             "Name of Vessel": raw_df.iloc[:, 4],      # E
@@ -43,12 +48,13 @@ if uploaded_file:
             "ATD": raw_df.iloc[:, 118],               # DO
             "No. of Moves": raw_df.iloc[:, 122],      # DS
             "TEUS": raw_df.iloc[:, 109],              # DF
+            "BSH": raw_df.iloc[:, 133],               # ED
             "GRT": raw_df.iloc[:, 20],                # U
             "Current Berthing hours": raw_df.iloc[:, 119],  # DP
         })
 
         # =========================
-        # FORMAT ATB & ATD → DD/MM/YYYY HH:MM
+        # FORMAT ATB & ATD
         # =========================
         for col in ["ATB", "ATD"]:
             df[col] = pd.to_datetime(
@@ -57,7 +63,7 @@ if uploaded_file:
             ).dt.strftime("%d/%m/%Y %H:%M")
 
         # =========================
-        # KONVERSI KE NUMERIK
+        # KONVERSI NUMERIK
         # =========================
         df["Current Berthing hours"] = pd.to_numeric(
             df["Current Berthing hours"],
@@ -68,6 +74,16 @@ if uploaded_file:
             df["GRT"],
             errors="coerce"
         ).fillna(0)
+
+        df["BSH"] = pd.to_numeric(
+            df["BSH"],
+            errors="coerce"
+        ).fillna(0)
+
+        # =========================
+        # FILTER BSH < 40
+        # =========================
+        df = df[df["BSH"] < 40].reset_index(drop=True)
 
         # =========================
         # CURRENT BERTHING MINUTES
@@ -107,7 +123,7 @@ if uploaded_file:
         ).round(2)
 
         # =========================
-        # NOMOR BARIS MULAI DARI 1
+        # NOMOR BARIS
         # =========================
         df.insert(0, "No", range(1, len(df) + 1))
 
