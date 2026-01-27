@@ -10,7 +10,7 @@ st.set_page_config(page_title="ETMAL Calculator", layout="wide")
 st.title("📊 ETMAL Calculator & Delay TPS Analysis")
 
 # =====================================================
-# FUNGSI HITUNG DURASI TANPA OVERLAP
+# FUNGSI: HITUNG DURASI TANPA OVERLAP
 # =====================================================
 def hitung_durasi_tanpa_overlap(df):
     if df.empty:
@@ -45,20 +45,31 @@ uploaded_file = st.file_uploader(
 if uploaded_file:
     try:
         # =====================================================
-        # PILIH SHEET RAW DATA
+        # PILIH SHEET
         # =====================================================
         xls = pd.ExcelFile(uploaded_file)
-        sheet_name = st.selectbox(
-            "📄 Sheet digunakan (RAW DATA):",
+
+        sheet_etmal = st.selectbox(
+            "📄 Sheet RAW DATA ETMAL",
+            xls.sheet_names
+        )
+
+        sheet_detail = st.selectbox(
+            "📄 Sheet DETAIL EVENT",
+            xls.sheet_names
+        )
+
+        sheet_summary = st.selectbox(
+            "📄 Sheet SUMMARY EVENT",
             xls.sheet_names
         )
 
         # =====================================================
-        # BACA RAW DATA (MULAI BARIS KE-10)
+        # ==================== ETMAL ==========================
         # =====================================================
         raw_df = pd.read_excel(
             uploaded_file,
-            sheet_name=sheet_name,
+            sheet_name=sheet_etmal,
             skiprows=9,
             header=None
         )
@@ -66,9 +77,6 @@ if uploaded_file:
         # Abaikan 2 baris terakhir
         raw_df = raw_df.iloc[:-2]
 
-        # =====================================================
-        # AMBIL KOLOM SESUAI POSISI
-        # =====================================================
         df = pd.DataFrame({
             "Name of Vessel": raw_df.iloc[:, 4],      # E
             "Voyage": raw_df.iloc[:, 5],              # F
@@ -83,37 +91,25 @@ if uploaded_file:
             "Current Berthing hours": raw_df.iloc[:, 119],  # DP
         })
 
-        # =====================================================
-        # FORMAT ATB & ATD
-        # =====================================================
+        # Format ATB & ATD
         for col in ["ATB", "ATD"]:
             df[col] = pd.to_datetime(
-                df[col],
-                errors="coerce"
+                df[col], errors="coerce"
             ).dt.strftime("%d/%m/%Y %H:%M")
 
-        # =====================================================
-        # KONVERSI NUMERIK
-        # =====================================================
+        # Konversi numerik
         for col in ["Current Berthing hours", "GRT", "BSH"]:
             df[col] = pd.to_numeric(
-                df[col],
-                errors="coerce"
+                df[col], errors="coerce"
             ).fillna(0)
 
-        # =====================================================
-        # FILTER BSH < 40
-        # =====================================================
+        # Filter BSH < 40
         df = df[df["BSH"] < 40].reset_index(drop=True)
 
-        # =====================================================
-        # CURRENT BERTHING MINUTES
-        # =====================================================
+        # Current Berthing Minutes
         df["Current Berthing minutes"] = df["Current Berthing hours"] * 60
 
-        # =====================================================
-        # HITUNG ETMAL SESUAI EXCEL
-        # =====================================================
+        # Logika ETMAL
         def hitung_etmal(jam):
             if jam <= 6:
                 return 0.25
@@ -134,44 +130,34 @@ if uploaded_file:
 
         df["Etmal charged"] = df["Current Berthing hours"].apply(hitung_etmal)
 
-        # =====================================================
-        # HITUNG INVOICE
-        # =====================================================
+        # Invoice
         df["Invoice (USD)"] = (
             df["GRT"] * 0.131 * df["Etmal charged"]
         ).round(2)
 
-        # =====================================================
-        # NOMOR BARIS
-        # =====================================================
+        # Nomor baris
         df.insert(0, "No", range(1, len(df) + 1))
 
-        # =====================================================
-        # TAMPILKAN DASHBOARD ETMAL
-        # =====================================================
         st.subheader("📦 Dashboard ETMAL")
         st.dataframe(df, use_container_width=True)
 
         # =====================================================
         # ================== DELAY TPS ========================
         # =====================================================
-        st.subheader("⏱️ Analisis Delay TPS")
-
         detail_delay = pd.read_excel(
             uploaded_file,
-            sheet_name="DETAIL EVENT"
+            sheet_name=sheet_detail
         )
 
         summary_event = pd.read_excel(
             uploaded_file,
-            sheet_name="SUMMARY EVENT"
+            sheet_name=sheet_summary
         )
 
         # Pastikan datetime
         for col in ["From", "To"]:
             detail_delay[col] = pd.to_datetime(
-                detail_delay[col],
-                errors="coerce"
+                detail_delay[col], errors="coerce"
             )
 
         alasan_list = ["BDW", "YDC", "OTHR", "YCG", "RTR", "TTC", "RNP"]
@@ -181,7 +167,6 @@ if uploaded_file:
 
         for vessel in vessel_valid:
             for alasan in alasan_list:
-
                 df_event = detail_delay[
                     (detail_delay["Vessel"] == vessel) &
                     (detail_delay["Reason"] == alasan)
@@ -218,6 +203,7 @@ if uploaded_file:
 
         df_delay = pd.DataFrame(hasil_delay)
 
+        st.subheader("⏱️ Analisis Delay TPS")
         st.dataframe(df_delay, use_container_width=True)
 
         # =====================================================
@@ -231,7 +217,7 @@ if uploaded_file:
         buffer.seek(0)
 
         st.download_button(
-            label="⬇️ Download hasil Excel",
+            "⬇️ Download hasil Excel",
             data=buffer,
             file_name="ETMAL_DAN_DELAY_TPS.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
