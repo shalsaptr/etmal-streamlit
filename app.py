@@ -1,228 +1,144 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-from datetime import timedelta
 
-# =====================================================
-# KONFIGURASI HALAMAN
-# =====================================================
-st.set_page_config(page_title="ETMAL Calculator", layout="wide")
-st.title("📊 ETMAL Calculator & Delay TPS Analysis")
+st.set_page_config(page_title="ETMAL & Delay Analyzer", layout="wide")
+st.title("📊 ETMAL & Delay Analyzer (Multi Vessel)")
 
-# =====================================================
-# FUNGSI: HITUNG DURASI TANPA OVERLAP
-# =====================================================
-def hitung_durasi_tanpa_overlap(df):
-    if df.empty:
-        return 0
-
-    intervals = sorted(
-        zip(df["From"], df["To"]),
-        key=lambda x: x[0]
-    )
-
-    total = timedelta(0)
-    start, end = intervals[0]
-
-    for s, e in intervals[1:]:
-        if s <= end:  # overlap
-            end = max(end, e)
-        else:
-            total += (end - start)
-            start, end = s, e
-
-    total += (end - start)
-    return int(total.total_seconds() / 60)
-
-# =====================================================
-# UPLOAD FILE
-# =====================================================
 uploaded_file = st.file_uploader(
     "Upload file Excel",
     type=["xlsx", "xls"]
 )
 
+# =============================
+# HELPER
+# =============================
+def is_excluded(action_plan):
+    if pd.isna(action_plan):
+        return False
+    txt = str(action_plan).lower()
+    return any(k in txt for k in ["sholat", "solat", "mandi"])
+
+
+def calculate_non_overlap(df):
+    df = df.sort_values("From")
+    total = 0
+    last_end = None
+
+    for _, r in df.iterrows():
+        start, end = r["From"], r["To"]
+        if pd.isna(start) or pd.isna(end):
+            continue
+
+        if last_end is None or start >= last_end:
+            total += (end - start).total_seconds() / 60
+            last_end = end
+        elif end > last_end:
+            total += (end - last_end).total_seconds() / 60
+            last_end = end
+
+    return round(total / 60, 2)
+
+
+# =============================
+# MAIN
+# =============================
 if uploaded_file:
     try:
-        # =====================================================
-        # PILIH SHEET
-        # =====================================================
         xls = pd.ExcelFile(uploaded_file)
+        sheet_event = st.selectbox("📄 Sheet Detail Event", xls.sheet_names)
 
-        sheet_etmal = st.selectbox(
-            "📄 Sheet RAW DATA ETMAL",
-            xls.sheet_names
-        )
-
-        sheet_detail = st.selectbox(
-            "📄 Sheet DETAIL EVENT",
-            xls.sheet_names
-        )
-
-        sheet_summary = st.selectbox(
-            "📄 Sheet SUMMARY EVENT",
-            xls.sheet_names
-        )
-
-        # =====================================================
-        # ==================== ETMAL ==========================
-        # =====================================================
-        raw_df = pd.read_excel(
+        # =============================
+        # READ EVENT SHEET
+        # =============================
+        raw = pd.read_excel(
             uploaded_file,
-            sheet_name=sheet_etmal,
-            skiprows=9,
-            header=None
+            sheet_name=sheet_event,
+            header=0
         )
 
-        # Abaikan 2 baris terakhir
-        raw_df = raw_df.iloc[:-2]
+        # =============================
+        # IDENTIFY VESSEL HEADER
+        # =============================
+        raw["VESSEL_ID"] = None
 
-        df = pd.DataFrame({
-            "Name of Vessel": raw_df.iloc[:, 4],      # E
-            "Voyage": raw_df.iloc[:, 5],              # F
-            "Berth": raw_df.iloc[:, 21],              # V
-            "Service": raw_df.iloc[:, 10],            # K
-            "ATB": raw_df.iloc[:, 26],                # AA
-            "ATD": raw_df.iloc[:, 118],               # DO
-            "No. of Moves": raw_df.iloc[:, 122],      # DS
-            "TEUS": raw_df.iloc[:, 109],              # DF
-            "BSH": raw_df.iloc[:, 133],               # ED
-            "GRT": raw_df.iloc[:, 20],                # U
-            "Current Berthing hours": raw_df.iloc[:, 119],  # DP
-        })
+        vessel_mask = raw.iloc[:, 0].astype(str).str.contains("EVER|CMA|MSC|MAERSK", na=False)
 
-        # Format ATB & ATD
-        for col in ["ATB", "ATD"]:
-            df[col] = pd.to_datetime(
-                df[col], errors="coerce"
-            ).dt.strftime("%d/%m/%Y %H:%M")
+        current_vessel = None
+        for i in range(len(raw)):
+            if vessel_mask.iloc[i]:
+                current_vessel = raw.iloc[i, 0]
+            raw.at[i, "VESSEL_ID"] = current_vessel
 
-        # Konversi numerik
-        for col in ["Current Berthing hours", "GRT", "BSH"]:
-            df[col] = pd.to_numeric(
-                df[col], errors="coerce"
-            ).fillna(0)
+        raw = raw[raw["VESSEL_ID"].notna()].copy()
 
-        # Filter BSH < 40
-        df = df[df["BSH"] < 40].reset_index(drop=True)
+        # =============================
+        # CLEAN EVENT DATA
+        # =============================
+        raw["From"] = pd.to_datetime(raw["From"], errors="coerce")
+        raw["To"] = pd.to_datetime(raw["To"], errors="coerce")
+        raw["Duration"] = pd.to_numeric(raw["Duration"], errors="coerce").fillna(0)
 
-        # Current Berthing Minutes
-        df["Current Berthing minutes"] = df["Current Berthing hours"] * 60
+        raw = raw[raw["Event"].notna()]
 
-        # Logika ETMAL
-        def hitung_etmal(jam):
-            if jam <= 6:
-                return 0.25
-            elif jam <= 12:
-                return 0.50
-            elif jam <= 18:
-                return 0.75
-            elif jam <= 24:
-                return 1.00
-            elif jam <= 30:
-                return 1.25
-            elif jam <= 36:
-                return 1.50
-            elif jam <= 42:
-                return 1.75
-            else:
-                return 2.00
+        # =============================
+        # FILTER EXCLUDED EVENTS
+        # =============================
+        raw["exclude"] = raw["Action Plan"].apply(is_excluded)
+        raw = raw[raw["exclude"] == False]
 
-        df["Etmal charged"] = df["Current Berthing hours"].apply(hitung_etmal)
+        # =============================
+        # PROCESS PER VESSEL
+        # =============================
+        summary = []
+        detail_valid = []
 
-        # Invoice
-        df["Invoice (USD)"] = (
-            df["GRT"] * 0.131 * df["Etmal charged"]
-        ).round(2)
+        for vessel, g in raw.groupby("VESSEL_ID"):
+            total_delay = calculate_non_overlap(g)
+            summary.append({
+                "Vessel": vessel,
+                "Total Delay (Hours)": total_delay
+            })
 
-        # Nomor baris
-        df.insert(0, "No", range(1, len(df) + 1))
-
-        st.subheader("📦 Dashboard ETMAL")
-        st.dataframe(df, use_container_width=True)
-
-        # =====================================================
-        # ================== DELAY TPS ========================
-        # =====================================================
-        detail_delay = pd.read_excel(
-            uploaded_file,
-            sheet_name=sheet_detail
-        )
-
-        summary_event = pd.read_excel(
-            uploaded_file,
-            sheet_name=sheet_summary
-        )
-
-        # Pastikan datetime
-        for col in ["From", "To"]:
-            detail_delay[col] = pd.to_datetime(
-                detail_delay[col], errors="coerce"
-            )
-
-        alasan_list = ["BDW", "YDC", "OTHR", "YCG", "RTR", "TTC", "RNP"]
-        hasil_delay = []
-
-        vessel_valid = df["Name of Vessel"].unique()
-
-        for vessel in vessel_valid:
-            for alasan in alasan_list:
-                df_event = detail_delay[
-                    (detail_delay["Vessel"] == vessel) &
-                    (detail_delay["Reason"] == alasan)
-                ].copy()
-
-                if df_event.empty:
-                    continue
-
-                # OTHR: buang sholat / solat / mandi
-                if alasan == "OTHR":
-                    df_event = df_event[
-                        ~df_event["Action Plan"].str.contains(
-                            r"sholat|solat|mandi",
-                            case=False,
-                            na=False
-                        )
-                    ]
-
-                durasi_unik = hitung_durasi_tanpa_overlap(df_event)
-
-                if durasi_unik > 0:
-                    menit_final = durasi_unik
-                else:
-                    menit_final = summary_event.loc[
-                        summary_event["Reason"] == alasan,
-                        "TOTAL EVENT"
-                    ].sum()
-
-                hasil_delay.append({
+            for ev, ev_df in g.groupby("Event"):
+                ev_delay = calculate_non_overlap(ev_df)
+                summary.append({
                     "Vessel": vessel,
-                    "Alasan": alasan,
-                    "Jumlah waktu tidak tumpang tindih (menit)": menit_final
+                    "Event": ev,
+                    "Delay (Hours)": ev_delay
                 })
 
-        df_delay = pd.DataFrame(hasil_delay)
+            detail_valid.append(g)
 
-        st.subheader("⏱️ Analisis Delay TPS")
-        st.dataframe(df_delay, use_container_width=True)
+        df_summary = pd.DataFrame(summary)
+        df_detail = pd.concat(detail_valid)
 
-        # =====================================================
-        # DOWNLOAD EXCEL (2 SHEET)
-        # =====================================================
+        # =============================
+        # DISPLAY
+        # =============================
+        st.subheader("📋 Delay Summary per Vessel")
+        st.dataframe(df_summary, use_container_width=True)
+
+        st.subheader("📄 Valid Delay Detail (Cleaned)")
+        st.dataframe(df_detail, use_container_width=True)
+
+        # =============================
+        # EXPORT
+        # =============================
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-            df.to_excel(writer, sheet_name="ETMAL", index=False)
-            df_delay.to_excel(writer, sheet_name="DELAY_TPS", index=False)
+            df_summary.to_excel(writer, sheet_name="SUMMARY_DELAY", index=False)
+            df_detail.to_excel(writer, sheet_name="DETAIL_DELAY", index=False)
 
         buffer.seek(0)
 
         st.download_button(
-            "⬇️ Download hasil Excel",
-            data=buffer,
-            file_name="ETMAL_DAN_DELAY_TPS.xlsx",
+            "⬇️ Download Final Excel",
+            buffer,
+            file_name="DELAY_FINAL_RESULT.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     except Exception as e:
-        st.error("❌ Terjadi kesalahan")
+        st.error("❌ Error")
         st.code(str(e))
