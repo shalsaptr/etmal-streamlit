@@ -2,143 +2,150 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(page_title="ETMAL & Delay Analyzer", layout="wide")
-st.title("📊 ETMAL & Delay Analyzer (Multi Vessel)")
+st.set_page_config(page_title="ETMAL Calculator", layout="wide")
+st.title("📊 ETMAL Calculator")
 
 uploaded_file = st.file_uploader(
     "Upload file Excel",
     type=["xlsx", "xls"]
 )
 
-# =============================
-# HELPER
-# =============================
-def is_excluded(action_plan):
-    if pd.isna(action_plan):
-        return False
-    txt = str(action_plan).lower()
-    return any(k in txt for k in ["sholat", "solat", "mandi"])
-
-
-def calculate_non_overlap(df):
-    df = df.sort_values("From")
-    total = 0
-    last_end = None
-
-    for _, r in df.iterrows():
-        start, end = r["From"], r["To"]
-        if pd.isna(start) or pd.isna(end):
-            continue
-
-        if last_end is None or start >= last_end:
-            total += (end - start).total_seconds() / 60
-            last_end = end
-        elif end > last_end:
-            total += (end - last_end).total_seconds() / 60
-            last_end = end
-
-    return round(total / 60, 2)
-
-
-# =============================
-# MAIN
-# =============================
 if uploaded_file:
     try:
+        # =========================
+        # PILIH SHEET
+        # =========================
         xls = pd.ExcelFile(uploaded_file)
-        sheet_event = st.selectbox("📄 Sheet Detail Event", xls.sheet_names)
-
-        # =============================
-        # READ EVENT SHEET
-        # =============================
-        raw = pd.read_excel(
-            uploaded_file,
-            sheet_name=sheet_event,
-            header=0
+        sheet_name = st.selectbox(
+            "📄 Sheet digunakan:",
+            xls.sheet_names
         )
 
-        # =============================
-        # IDENTIFY VESSEL HEADER
-        # =============================
-        raw["VESSEL_ID"] = None
+        # =========================
+        # BACA DATA MULAI BARIS KE-10
+        # =========================
+        raw_df = pd.read_excel(
+            uploaded_file,
+            sheet_name=sheet_name,
+            skiprows=9,
+            header=None
+        )
 
-        vessel_mask = raw.iloc[:, 0].astype(str).str.contains("EVER|CMA|MSC|MAERSK", na=False)
+        # =========================
+        # ABAIKAN 2 BARIS TERAKHIR 🔥
+        # =========================
+        raw_df = raw_df.iloc[:-2]
 
-        current_vessel = None
-        for i in range(len(raw)):
-            if vessel_mask.iloc[i]:
-                current_vessel = raw.iloc[i, 0]
-            raw.at[i, "VESSEL_ID"] = current_vessel
+        # =========================
+        # AMBIL KOLOM BERDASARKAN POSISI
+        # =========================
+        df = pd.DataFrame({
+            "Name of Vessel": raw_df.iloc[:, 4],      # E
+            "Voyage": raw_df.iloc[:, 5],              # F
+            "Berth": raw_df.iloc[:, 21],              # V
+            "Service": raw_df.iloc[:, 10],            # K
+            "ATB": raw_df.iloc[:, 26],                # AA
+            "ATD": raw_df.iloc[:, 118],               # DO
+            "No. of Moves": raw_df.iloc[:, 122],      # DS
+            "TEUS": raw_df.iloc[:, 109],              # DF
+            "BSH": raw_df.iloc[:, 133],               # ED
+            "GRT": raw_df.iloc[:, 20],                # U
+            "Current Berthing hours": raw_df.iloc[:, 119],  # DP
+        })
 
-        raw = raw[raw["VESSEL_ID"].notna()].copy()
+        # =========================
+        # FORMAT ATB & ATD
+        # =========================
+        for col in ["ATB", "ATD"]:
+            df[col] = pd.to_datetime(
+                df[col],
+                errors="coerce"
+            ).dt.strftime("%d/%m/%Y %H:%M")
 
-        # =============================
-        # CLEAN EVENT DATA
-        # =============================
-        raw["From"] = pd.to_datetime(raw["From"], errors="coerce")
-        raw["To"] = pd.to_datetime(raw["To"], errors="coerce")
-        raw["Duration"] = pd.to_numeric(raw["Duration"], errors="coerce").fillna(0)
+        # =========================
+        # KONVERSI NUMERIK
+        # =========================
+        df["Current Berthing hours"] = pd.to_numeric(
+            df["Current Berthing hours"],
+            errors="coerce"
+        ).fillna(0)
 
-        raw = raw[raw["Event"].notna()]
+        df["GRT"] = pd.to_numeric(
+            df["GRT"],
+            errors="coerce"
+        ).fillna(0)
 
-        # =============================
-        # FILTER EXCLUDED EVENTS
-        # =============================
-        raw["exclude"] = raw["Action Plan"].apply(is_excluded)
-        raw = raw[raw["exclude"] == False]
+        df["BSH"] = pd.to_numeric(
+            df["BSH"],
+            errors="coerce"
+        ).fillna(0)
 
-        # =============================
-        # PROCESS PER VESSEL
-        # =============================
-        summary = []
-        detail_valid = []
+        # =========================
+        # FILTER BSH < 40
+        # =========================
+        df = df[df["BSH"] < 40].reset_index(drop=True)
 
-        for vessel, g in raw.groupby("VESSEL_ID"):
-            total_delay = calculate_non_overlap(g)
-            summary.append({
-                "Vessel": vessel,
-                "Total Delay (Hours)": total_delay
-            })
+        # =========================
+        # CURRENT BERTHING MINUTES
+        # =========================
+        df["Current Berthing minutes"] = (
+            df["Current Berthing hours"] * 60
+        )
 
-            for ev, ev_df in g.groupby("Event"):
-                ev_delay = calculate_non_overlap(ev_df)
-                summary.append({
-                    "Vessel": vessel,
-                    "Event": ev,
-                    "Delay (Hours)": ev_delay
-                })
+        # =========================
+        # LOGIKA ETMAL SESUAI EXCEL
+        # =========================
+        def hitung_etmal(jam):
+            if jam <= 6:
+                return 0.25
+            elif jam <= 12:
+                return 0.50
+            elif jam <= 18:
+                return 0.75
+            elif jam <= 24:
+                return 1.00
+            elif jam <= 30:
+                return 1.25
+            elif jam <= 36:
+                return 1.50
+            elif jam <= 42:
+                return 1.75
+            else:
+                return 2.00
 
-            detail_valid.append(g)
+        df["Etmal charged"] = df["Current Berthing hours"].apply(hitung_etmal)
 
-        df_summary = pd.DataFrame(summary)
-        df_detail = pd.concat(detail_valid)
+        # =========================
+        # HITUNG INVOICE
+        # =========================
+        df["Invoice (USD)"] = (
+            df["GRT"] * 0.131 * df["Etmal charged"]
+        ).round(2)
 
-        # =============================
-        # DISPLAY
-        # =============================
-        st.subheader("📋 Delay Summary per Vessel")
-        st.dataframe(df_summary, use_container_width=True)
+        # =========================
+        # NOMOR BARIS
+        # =========================
+        df.insert(0, "No", range(1, len(df) + 1))
 
-        st.subheader("📄 Valid Delay Detail (Cleaned)")
-        st.dataframe(df_detail, use_container_width=True)
+        # =========================
+        # TAMPILKAN DATA
+        # =========================
+        st.dataframe(df, use_container_width=True)
 
-        # =============================
-        # EXPORT
-        # =============================
+        # =========================
+        # DOWNLOAD EXCEL
+        # =========================
         buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-            df_summary.to_excel(writer, sheet_name="SUMMARY_DELAY", index=False)
-            df_detail.to_excel(writer, sheet_name="DETAIL_DELAY", index=False)
-
+        df.to_excel(buffer, index=False)
         buffer.seek(0)
 
         st.download_button(
-            "⬇️ Download Final Excel",
-            buffer,
-            file_name="DELAY_FINAL_RESULT.xlsx",
+            label="⬇️ Download hasil Excel",
+            data=buffer,
+            file_name="ETMAL_RESULT.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     except Exception as e:
-        st.error("❌ Error")
+        st.error("❌ Terjadi kesalahan")
         st.code(str(e))
