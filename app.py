@@ -32,9 +32,10 @@ if uploaded_file:
         )
 
         # =========================
-        # ABAIKAN 2 BARIS TERAKHIR 🔥
+        # HAPUS BARIS YANG KOSONG SAJA
         # =========================
-        raw_df = raw_df.iloc[:-2]
+        raw_df = raw_df.dropna(how="all")
+
 
         # =========================
         # AMBIL KOLOM BERDASARKAN POSISI
