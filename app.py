@@ -140,7 +140,7 @@ if uploaded_file:
         buffer.seek(0)
 
         st.download_button(
-            label="⬇️ Download hasil Excel",
+            label="⬇️ Download ",
             data=buffer,
             file_name="ETMAL_RESULT.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
