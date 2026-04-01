@@ -6,7 +6,7 @@ st.set_page_config(page_title="ETMAL Calculator", layout="wide")
 st.title("📊 ETMAL Calculator")
 
 uploaded_file = st.file_uploader(
-    "Upload",
+    "",
     type=["xlsx", "xls"]
 )
 
