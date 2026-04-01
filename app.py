@@ -17,7 +17,7 @@ if uploaded_file:
         # =========================
         xls = pd.ExcelFile(uploaded_file)
         sheet_name = st.selectbox(
-            "📄 Sheet digunakan:",
+            "",
             xls.sheet_names
         )
 
