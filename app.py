@@ -50,7 +50,7 @@ if uploaded_file:
             "TEUS": raw_df.iloc[:, 109],              # DF
             "BSH": raw_df.iloc[:, 133],               # ED
             "GRT": raw_df.iloc[:, 20],                # U
-            "Current Berthing ours": raw_df.iloc[:, 119],  # DP
+            "Current Berthing hours": raw_df.iloc[:, 119],  # DP
         })
 
         # =========================
