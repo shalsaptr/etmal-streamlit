@@ -3,7 +3,7 @@ import pandas as pd
 from io import BytesIO
 
 st.set_page_config(page_title="ETMAL Calculator", layout="wide")
-st.title("📊 ETMAL Calculator")
+st.title("📊 ETMAL")
 
 uploaded_file = st.file_uploader(
     "",
