@@ -50,7 +50,7 @@ if uploaded_file:
             "TEUS": raw_df.iloc[:, 109],              # DF
             "BSH": raw_df.iloc[:, 133],               # ED
             "GRT": raw_df.iloc[:, 20],                # U
-            "Current Berthing Hours": raw_df.iloc[:, 119],  # DP
+            "Current Berthing hours": raw_df.iloc[:, 119],  # DP
         })
 
         # =========================
@@ -65,8 +65,8 @@ if uploaded_file:
         # =========================
         # KONVERSI NUMERIK
         # =========================
-        df["Current Berthing Hours"] = pd.to_numeric(
-            df["Current Berthing Hours"],
+        df["Current Berthing hours"] = pd.to_numeric(
+            df["Current Berthing hours"],
             errors="coerce"
         ).fillna(0)
 
@@ -88,8 +88,8 @@ if uploaded_file:
         # =========================
         # CURRENT BERTHING MINUTES
         # =========================
-        df["Current Berthing Minutes"] = (
-            df["Current Berthing Hours"] * 60
+        df["Current Berthing minutes"] = (
+            df["Current Berthing hours"] * 60
         )
 
         # =========================
@@ -113,13 +113,13 @@ if uploaded_file:
             else:
                 return 2.00
 
-        df["Etmal charged"] = df["Current Berthing Hours"].apply(hitung_etmal)
+        df["Etmal charged"] = df["Current Berthing hours"].apply(hitung_etmal)
 
         # =========================
         # HITUNG INVOICE
         # =========================
         df["Invoice (USD)"] = (
-            df["GRT"] * 0.131 * df["Etmal Charged"]
+            df["GRT"] * 0.131 * df["Etmal charged"]
         ).round(2)
 
         # =========================
